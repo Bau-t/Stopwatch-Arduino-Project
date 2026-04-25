@@ -5,8 +5,8 @@
 ; Author : Edwin Bautista, Gustavo Vega, Langley Elg
 ; Desc   : Stopwatch that utilizes interrupts and timers to output lap times on a lcd screen
 
-                 ;      des /    xtal * prescaler
-.equ TICK_DELAY =  (10000 / ((1 / 16.0) * 256 )) - 1     ; 624(5) ticks for a centisecond, prescaler can be changed
+                 ; desired /    xtal * prescaler
+.equ TICK_DELAY =  (10000 / ((1 / 16.0) * 8 )) - 1; 19,999/20,000-1 ticks, prescaler can change
 
 ; Buttons defined
 .equ BTN_DIR  = DDRD
@@ -51,7 +51,8 @@
 ;--------------------------------------------------------
 ; Strings and lookup-tables
 ;--------------------------------------------------------
-message: .db "Lap: " , 0
+colon: .db ":", 0                       ; allocates bytes for ascii chars with terminator(0) ending the string
+lap: .db "Lap: " , 0
 
 ;--------------------------------------------------------
 ; Inculdes
@@ -109,29 +110,38 @@ check_tick:
 
 run_logic:
           tst       state               
-          breq      stop_logic          ; branch if stopwatched is stopeed
+          ;breq      stop_logic          ; branch if stopwatch is stopped
 
-          ; logic when stopwatch is running
+          ;Logic when stopwatch is running
           
           ; reset LCD screen
-          rcall     LCD_CLEAR
           rcall     LCD_HOME
 
+          ;update centiseconds
+          lds       r0, centiseconds
+          
+          inc       r0
+          
+          sts       centiseconds, r0
+
+          mov       r30, r0
+          rcall     LCD_PRINT_UINT16
+
+
+
           ; init Z pointer to message and write it
-          ldi       ZH, high(message << 1)
-          ldi       ZL, low(message << 1)
+          ldi       ZH, high(colon << 1);z is r31?
+          ldi       ZL, low(colon << 1)
           rcall     LCD_WRITE_STRING_PM
 
 
-
-
-stop_logic:
-          tst       state
-          brne      end_loop            ; 'redundant' check, not necessary?
-
-          ; reset LCD screen
-          rcall     LCD_CLEAR
-          rcall     LCD_HOME
+;stop_logic:
+;          tst       state
+;          brne      end_loop            ; 'redundant' check, not necessary?
+;
+;          ; reset LCD screen
+;          rcall     LCD_CLEAR
+;          rcall     LCD_HOME
 
 
 
@@ -195,9 +205,9 @@ timer_init:
           sts       TCNT1L, r20
 
           ; Load OCR1AH:OCR1AL with stop count, output compare registers with TICK_DELAY = 624
-          lds       r20, high(TICK_DELAY); load upper byte into high register
+          ldi       r20, high(TICK_DELAY); load upper byte into high register
           sts       OCR1AH, r20
-          lds       r20, low(TICK_DELAY)
+          ldi       r20, low(TICK_DELAY)
           sts       OCR1AL, r20
 
           ; Load TCCR1A & TCCR1B
@@ -206,7 +216,7 @@ timer_init:
 
           ; Clock Prescaler   setting the clock starts the timer
           ldi       r20, (0b01 << WGM12); CTC mode, WGM12 need to be set ode
-          ori       r20, (0b11 << CS10) ; clk/64, CS11 and CS10 need to be set
+          ori       r20, (0b10 << CS10) ; clk/8, CS11 needs to be set
           sts       TCCR1B, r20         ; stores r20 into the timer/compare register 1B
 
           ; enable interrupts
@@ -242,3 +252,19 @@ lap_ISR:
           ldi       lapFlag, 1          ; readFlag = true
           
           reti
+
+; ------------------------------------------------------------
+;inc_time:                               ; change time
+; ------------------------------------------------------------
+;          push     r0
+;          push     r1
+;          ; read current time
+;          lds       r1, centiseconds + 1
+;          lds       r0, centiseconds
+;
+;          ; adjust current delay by speed adjust
+;          sub       r0, r16
+;          sbc       r1, r17
+;
+;          sts       tmCount + 1, r1
+;          sts       tmCount, r0
