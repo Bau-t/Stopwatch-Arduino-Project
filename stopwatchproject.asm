@@ -14,8 +14,9 @@
 .equ BTN_MODE = PORTD
 .equ BTN_START = PD2                    ; Port D Pin 2, INT0?
 .equ BTN_LAP = PD3                      ; Port D Pin 3, INT1?
-;.equ BTN_RESET = PD?                   ; Port D Pin 2, might be NOT NEEDED?,
-                                        ; there isnt a third external to use for reset?
+.equ BTN_RESET = PB3                    ; Port B Pin 11, does not use the two dedicated external interrupts
+                                        ; TODO: Configure reset button definitions + gpio init
+                                        
 ; Flags defined, if flag is set to 1(set in the ISRs), then that interrupt happened
 .def tickFlag = r21                     ; every centisecond .01
 .def startFlag = r22                    ; start/pause flag
@@ -59,7 +60,7 @@ message: .db "Lap: " , 0
 ;--------------------------------------------------------
 .include "lcd.inc"
 
-.include "util.inc"
+;.include "util.inc
 
 ;--------------------------------------------------------
 main:
@@ -127,14 +128,14 @@ run_logic:
 
 
 stop_logic:
-          tst       state
-          brne      end_loop            ; 'redundant' check, not necessary?
+          ;tst       state
+          ;brne      end_loop            ; 'redundant' check, not necessary?
 
           ; reset LCD screen
-          rcall     LCD_CLEAR
-          rcall     LCD_HOME
+          ;rcall     LCD_CLEAR
+          ;rcall     LCD_HOME
 
-
+          rjmp      end_loop            ; Fixes the flicker issue, will display its last value
 
 
 ;          ; init Z pointer to message and write it
@@ -196,9 +197,9 @@ timer_init:
           sts       TCNT1L, r20
 
           ; Load OCR1AH:OCR1AL with stop count, output compare registers with TICK_DELAY = 624
-          lds       r20, high(TICK_DELAY); load upper byte into high register
+          ldi       r20, high(TICK_DELAY); load upper byte into high register
           sts       OCR1AH, r20
-          lds       r20, low(TICK_DELAY)
+          ldi       r20, low(TICK_DELAY)
           sts       OCR1AL, r20
 
           ; Load TCCR1A & TCCR1B
@@ -207,7 +208,7 @@ timer_init:
 
           ; Clock Prescaler   setting the clock starts the timer
           ldi       r20, (0b01 << WGM12); CTC mode, WGM12 need to be set ode
-          ori       r20, (0b11 << CS10) ; clk/64, CS11 and CS10 need to be set
+          ori       r20, (0b100 << CS10) ; clk/256, CS12 need to be set
           sts       TCCR1B, r20         ; stores r20 into the timer/compare register 1B
 
           ; enable interrupts
@@ -218,28 +219,58 @@ timer_init:
 ; ------------------------------------------------------------
 tick_ISR:
 ; ------------------------------------------------------------
+
+          ; Save a working register, copy SREG, then save to stack
+          push      r20
+          in        r20, SREG
           push      r20
 
           ldi       tickFlag, 1         ; tickFlag = true
 
           ; Load TCNT1H:TCNT1L with initial count, timer/compare registers
-          clr       r20
-          sts       TCNT1H, r20
-          sts       TCNT1L, r20
+          ; possibly remove due to redundancy, can interrupt 10ms intervals by making it slightly longer for edge cases
+          ;clr       r20
+          ;sts       TCNT1H, r20
+          ;sts       TCNT1L, r20
 
+          ; Restore saved SREG and restore working register
           pop       r20
+          out       SREG, r20
+          pop       r20
+
           reti
 
 ; ------------------------------------------------------------
 start_ISR:
 ; ------------------------------------------------------------
+          
+          ; Save a working register, copy SREG, then save to stack
+          push      r20
+          in        r20, SREG
+          push      r20
+
           ldi       startFlag, 1        ; startFlag = true 
+
+          ; Restore saved SREG and restore working register
+          pop       r20
+          out       SREG, r20
+          pop       r20
           
           reti
 
 ; ------------------------------------------------------------
 lap_ISR:
 ; ------------------------------------------------------------
+          ; Save a working register, copy SREG, then save to stack
+          push      r20
+          in        r20, SREG
+          push      r20
+
           ldi       lapFlag, 1          ; readFlag = true
+
+          ; Restore saved SREG and restore working register
+          pop       r20
+          out       SREG, r20
+          pop       r20
           
           reti
