@@ -5,6 +5,7 @@
 ; Author : Edwin Bautista, Gustavo Vega, Langley Elg
 ; Desc   : Stopwatch that utilizes interrupts and timers to output lap times on a lcd screen
 
+; BRANCH: bug-fixes
                  ;      des /    xtal * prescaler
 .equ TICK_DELAY =  (10000 / ((1 / 16.0) * 256 )) - 1     ; 624(5) ticks for a centisecond, prescaler can be changed
 
