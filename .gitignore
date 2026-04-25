@@ -1,0 +1,16 @@
+# Microchip Studio / Visual Studio
+.vs/
+
+# Build output
+Debug/
+Release/
+
+# Temporary / cache files
+*.o
+*.elf
+*.hex
+*.obj
+
+# OS files
+.DS_Store
+Thumbs.db
