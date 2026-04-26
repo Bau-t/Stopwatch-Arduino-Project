@@ -71,7 +71,13 @@ main:
           ldi       r16, low(RAMEND)
           out       SPL, r16
 
-          ;init timer, lcd and gpio registers
+          ; Initialize SRAM variables to zero
+          ldi r16, 0
+          sts centiseconds, r16
+          sts seconds, r16
+          sts minutes, r16
+
+          ; init timer, lcd and gpio registers
           rcall     gpio_init           ; buttons
           rcall     LCD_INIT            ; LCD screen
           ;rcall     RAND_INIT           ; random number generator, NOT NEEDED?
@@ -111,30 +117,72 @@ check_tick:
 
 run_logic:
           tst       state               
-          ;breq      stop_logic          ; branch if stopwatch is stopped
+          breq      stop_logic          ; branch if stopwatch is stopped
 
           ;Logic when stopwatch is running
           
           ; reset LCD screen
+          ;rcall     LCD_CLEAR
           rcall     LCD_HOME
 
           ;update centiseconds
-          lds       r0, centiseconds
-          
-          inc       r0
-          
-          sts       centiseconds, r0
+          lds       r17, centiseconds    ; load into register from address
+          inc       r17                  ; increases value
 
-          mov       r30, r0
+          cpi       r17, 100             ; compare to 100
+          breq      update_seconds      ; branch to update other time values
+
+          sts       centiseconds, r17    ; store values back into centisecond
+          rjmp      output              ; back to loop if 100 centiseconds is not met
+
+update_seconds:
+          clr       r17
+          sts       centiseconds, r17
+          
+          ; update seconds
+          lds       r18, seconds         ; load into register from address
+          inc       r18                  ; increases value
+
+          cpi       r18, 60              ; compare to 60
+          breq      update_minutes      ; branch to update other time values
+
+          sts       seconds, r18
+          rjmp      output              ; back to loop if 60 seconds is not met
+
+update_minutes:
+          clr       r18
+          sts       seconds, r18
+
+          ; update minutes
+          lds       r19, minutes        ; load into register from address
+          inc       r19                  ; increases value
+
+;          cpi       r2, 60              ; compare to 60
+          sts       minutes, r19         ; branch to update other time values
+
+;          sts       seconds, r1
+ ;         rjmp      end_loop            ; back to loop if 60 seconds is not met
+
+
+          ; update
+          
+
+output:
+          ; loads time values
+          lds       r19, minutes
+          lds       r18, seconds
+          lds       r17, centiseconds
+
+          ; print minutes
+          mov       r30, r19
           rcall     LCD_PRINT_UINT16
 
-
-
-          ; init Z pointer to message and write it
-          ldi       ZH, high(colon << 1);z is r31?
+          ; print colon
+          ldi       ZH, high(colon << 1)
           ldi       ZL, low(colon << 1)
           rcall     LCD_WRITE_STRING_PM
 
+<<<<<<< HEAD
 stop_logic:
           ;tst       state
           ;brne      end_loop            ; 'redundant' check, not necessary?
@@ -144,31 +192,29 @@ stop_logic:
           ;rcall     LCD_HOME
 
           rjmp      end_loop            ; Fixes the flicker issue, will display its last value
+=======
+          ; print seconds
+          mov       r30, r18
+          rcall     LCD_PRINT_UINT16
+
+          ; print colon
+          ldi       ZH, high(colon << 1)
+          ldi       ZL, low(colon << 1)
+          rcall     LCD_WRITE_STRING_PM
+
+          ; print centiseconds
+          mov       r30, r17
+          rcall     LCD_PRINT_UINT16
 
 
-;          ; init Z pointer to message and write it
-;          ldi       ZH, high(message << 1)
-;          ldi       ZL, low(message << 1)
-;          rcall     LCD_WRITE_STRING_PM
-;          
-;          ;-----------------------NOT NEEDED?---
-;          ; min = 100
-;          ldi       r26, low(100)
-;          ldi       r27, high(100)
-;
-;          ; max = 300
-;          ldi       r28, low(300)
-;          ldi       r29, high(300)
-;
-;          rcall     RAND_BETWEEN
-;          ;--------------------------------------
-;
-;          ; used for displaying numbers?
-;          mov       r31, r27
-;          mov       r30, r26
-;          rcall     LCD_PRINT_UINT16
+stop_logic:
+          tst       state
+          brne      end_loop            ; 'redundant' check, not necessary
+>>>>>>> devGV
+
 
 end_loop:
+          
 
           clr       tickFlag            ; tickFlag = false
 
