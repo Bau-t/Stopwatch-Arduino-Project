@@ -56,11 +56,9 @@ colon: .db ":", 0                       ; allocates bytes for ascii chars with t
 lap: .db "Lap: " , 0
 
 ;--------------------------------------------------------
-; Inculdes
+; Includes
 ;--------------------------------------------------------
 .include "lcd.inc"
-
-;.include "util.inc
 
 ;--------------------------------------------------------
 main:
@@ -162,8 +160,6 @@ update_minutes:
 
 ;          sts       seconds, r1
  ;         rjmp      end_loop            ; back to loop if 60 seconds is not met
-
-
           ; update
           
 
@@ -182,17 +178,6 @@ output:
           ldi       ZL, low(colon << 1)
           rcall     LCD_WRITE_STRING_PM
 
-<<<<<<< HEAD
-stop_logic:
-          ;tst       state
-          ;brne      end_loop            ; 'redundant' check, not necessary?
-
-          ; reset LCD screen
-          ;rcall     LCD_CLEAR
-          ;rcall     LCD_HOME
-
-          rjmp      end_loop            ; Fixes the flicker issue, will display its last value
-=======
           ; print seconds
           mov       r30, r18
           rcall     LCD_PRINT_UINT16
@@ -210,7 +195,6 @@ stop_logic:
 stop_logic:
           tst       state
           brne      end_loop            ; 'redundant' check, not necessary
->>>>>>> devGV
 
 
 end_loop:
