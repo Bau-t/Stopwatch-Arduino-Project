@@ -5,14 +5,8 @@
 ; Author : Edwin Bautista, Gustavo Vega, Langley Elg
 ; Desc   : Stopwatch that utilizes interrupts and timers to output lap times on a lcd screen
 
-<<<<<<< HEAD
-; BRANCH: bug-fixes
-                 ;      des /    xtal * prescaler
-.equ TICK_DELAY =  (10000 / ((1 / 16.0) * 256 )) - 1     ; 624(5) ticks for a centisecond, prescaler can be changed
-=======
                  ; desired /    xtal * prescaler
 .equ TICK_DELAY =  (10000 / ((1 / 16.0) * 8 )) - 1; 19,999/20,000-1 ticks, prescaler can change
->>>>>>> devGV
 
 ; Buttons defined
 .equ BTN_DIR  = DDRD
@@ -141,10 +135,6 @@ run_logic:
           ldi       ZL, low(colon << 1)
           rcall     LCD_WRITE_STRING_PM
 
-
-<<<<<<< HEAD
-
-
 stop_logic:
           ;tst       state
           ;brne      end_loop            ; 'redundant' check, not necessary?
@@ -152,16 +142,6 @@ stop_logic:
           ; reset LCD screen
           ;rcall     LCD_CLEAR
           ;rcall     LCD_HOME
-=======
-;stop_logic:
-;          tst       state
-;          brne      end_loop            ; 'redundant' check, not necessary?
-;
-;          ; reset LCD screen
-;          rcall     LCD_CLEAR
-;          rcall     LCD_HOME
-
->>>>>>> devGV
 
           rjmp      end_loop            ; Fixes the flicker issue, will display its last value
 
@@ -236,11 +216,8 @@ timer_init:
 
           ; Clock Prescaler   setting the clock starts the timer
           ldi       r20, (0b01 << WGM12); CTC mode, WGM12 need to be set ode
-<<<<<<< HEAD
-          ori       r20, (0b100 << CS10) ; clk/256, CS12 need to be set
-=======
           ori       r20, (0b10 << CS10) ; clk/8, CS11 needs to be set
->>>>>>> devGV
+
           sts       TCCR1B, r20         ; stores r20 into the timer/compare register 1B
 
           ; enable interrupts
