@@ -1,4 +1,6 @@
 ;
+; stopwatchproject.asm
+;
 ; Created: 4/20/2026 8:11:02 AM
 ; Authors: Edwin Bautista, Langley Elg, Gustavo Vega
 ; Desc   : Creates a digital stopwatch on an LCD screen with two pushbuttons that 
