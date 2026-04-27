@@ -1,6 +1,4 @@
 ;
-; stopwatchproject.asm
-;
 ; Created: 4/20/2026 8:11:02 AM
 ; Authors: Edwin Bautista, Langley Elg, Gustavo Vega
 ; Desc   : Creates a digital stopwatch on an LCD screen with two pushbuttons that 
@@ -185,7 +183,7 @@ update_min:
 update_split:
           ; Tests the value of splitFlag and updates the split time accordingly
           tst       splitFlag           ; Checks if the split button has been pressed
-          breq      display             ; If not pressed, branches to 'display' to print the current time
+          breq      display_min_zero    ; If not pressed, branches to 'display_min_zero' to start printing the current time
 
           ; Updates the split time with each recorded value of the current time
           lds       r20, centiseconds
@@ -201,7 +199,7 @@ update_split:
           ; Clears splitFlag before continuing with the loop
           clr       splitFlag;          ; splitFlag = false
 
-display:
+display_min_zero:
           ; Prints current time on the LCD screen every 10ms
           
           ; Sets cursor at the start of the LCD screen
@@ -213,28 +211,60 @@ display:
           lds       r18, seconds
           lds       r17, centiseconds
 
-          ; Prints the current minute count to the LCD screen
+          ;
           clr       r31
           mov       r30, r19
-          rcall     LCD_PRINT_UINT16
 
+          ;
+          cpi       r30, 10             ;
+          brsh      display_min         ;
+
+          ; Else if less than 10
+          rcall     print_zero          ;
+
+display_min:
+          ; Prints the current minute count to the LCD screen
+          rcall     LCD_PRINT_UINT16
+                          
           ; Calls function to place colon between minutes and seconds
           rcall     print_colon
 
-          ; Prints the current second count to the LCD screen
+display_sec_zero:
+          ;
           clr       r31
           mov       r30, r18
-          rcall     LCD_PRINT_UINT16
 
+          ;
+          cpi       r30, 10             ;
+          brsh      display_sec         ;
+
+          ; Else if less than 10
+          rcall     print_zero          ;
+
+display_sec:
+          ; Prints the current second count to the LCD screen
+          rcall     LCD_PRINT_UINT16
+                          
           ; Calls function to place colon between seconds and centiseconds
           rcall     print_colon
 
-          ; Prints the current centisecond count to the LCD screen
+display_cent_zero:
+          ; 
           clr       r31
           mov       r30, r17
+
+          ;
+          cpi       r30, 10             ;
+          brsh      display_cent        ;
+
+          ; Else if less than 10
+          rcall     print_zero          ;
+
+display_cent:
+          ; Prints the current centisecond count to the LCD screen
           rcall     LCD_PRINT_UINT16
 
-          ; Prints blank space to resolve overlapping ghost digits
+          ; Prints blank space at end of timer to resolve overlapping ghost digits
           ldi       ZH, high(blank << 1)
           ldi       ZL, low(blank << 1)
           rcall     LCD_WRITE_STRING_PM
@@ -351,8 +381,8 @@ split_ISR:
 ; ------------------------------------------------------------
 display_split:
 ; ------------------------------------------------------------
-          ; Prints current split time on the LCD screen every 10ms
-
+; Prints current split time on the LCD screen every 10ms
+split_min_zero:
           ; Sets cursor at the start of the second row of the LCD screen
           ldi       LCD_DATA, 0xC0 ; Loads address of row 2 col 0 to the command register in lcd.inc
           rcall     LCD_SEND_COMMAND
@@ -361,33 +391,76 @@ display_split:
           ldi       ZH, high(split_text << 1)
           ldi       ZL, low(split_text << 1)
           rcall     LCD_WRITE_STRING_PM
+          
+          ; 
+          clr       r31                 ;
+          lds       r30, split_minutes  ;
+          
+          ;
+          cpi       r30, 10             ;
+          brsh      split_min           ;
 
+          ; Else if less than 10
+          rcall     print_zero          ;
+
+split_min:
           ; Prints the split minute count to the LCD screen
-          clr       r31
-          lds       r30, split_minutes
           rcall     LCD_PRINT_UINT16
           
           ; Calls function to place colon between minutes and seconds
           rcall     print_colon
-          
+
+split_sec_zero:
+          ;
+          clr       r31                 ;
+          lds       r30, split_seconds  ;
+
+          ;
+          cpi       r30, 10             ;
+          brsh      split_sec           ;
+
+          ; Else if less than 10
+          rcall     print_zero          ;
+
+split_sec:
           ; Prints the split second count to the LCD screen
-          clr       r31
-          lds       r30, split_seconds
           rcall     LCD_PRINT_UINT16
           
           ; Calls function to place colon between seconds and centiseconds
           rcall     print_colon
 
+split_cent_zero:
+
+          ; 
+          clr       r31                 ;
+          lds       r30, split_centiseconds;
+
+          ;
+          cpi       r30, 10             ;
+          brsh      split_cent          ;
+
+          ; Else if less than 10
+          rcall     print_zero          ;
+
+split_cent:
           ; Prints the split centisecond count to the LCD screen
-          clr       r31
-          lds       r30, split_centiseconds
           rcall     LCD_PRINT_UINT16
 
-          ; Prints blank space to resolve overlapping ghost digits
+          ; Prints blank space at end of timer to resolve overlapping ghost digits
           ldi       ZH, high(blank << 1)
           ldi       ZL, low(blank << 1)
           rcall     LCD_WRITE_STRING_PM
           
+          ret
+
+; ------------------------------------------------------------
+print_zero:
+; ------------------------------------------------------------
+          ; Prints leading zero at current cursor location when called
+          ldi       r20, '0'
+          mov       LCD_DATA, r20
+          rcall     LCD_SEND_DATA
+
           ret
 
 ; ------------------------------------------------------------
