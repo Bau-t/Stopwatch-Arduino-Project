@@ -206,23 +206,23 @@ display_min_zero:
           
           ; Sets cursor at the start of the LCD screen
           ldi       LCD_DATA, 0x80      ; Loads address of row 1 col 0 to the command register in lcd.inc
-          rcall     LCD_SEND_COMMAND
+          rcall     LCD_SEND_COMMAND    ; Calls function to assign the cursor at the inputted address
 
           ; Updates the current time with the recorded values of each unit
           lds       r19, minutes
           lds       r18, seconds
           lds       r17, centiseconds
 
-          ;
+          ; Copies the minutes value to the registers used by the print function in lcd.inc
           clr       r31
           mov       r30, r19
 
-          ;
-          cpi       r30, 10             ;
-          brsh      display_min         ;
+          ; Compares value of minutes to find values from 0-9
+          cpi       r30, 10             ; Checks if minutes is a single digit
+          brsh      display_min         ; If greater than or equal to 10, branches to 'display_min' to print minutes
 
           ; Else if less than 10
-          rcall     print_zero          ;
+          rcall     print_zero          ; Calls function to ensure minutes has a width of at least two digits
 
 display_min:
           ; Prints the current minute count to the LCD screen
@@ -232,16 +232,16 @@ display_min:
           rcall     print_colon
 
 display_sec_zero:
-          ;
+          ; Copies the seconds value to the registers used by the print function in lcd.inc
           clr       r31
           mov       r30, r18
 
-          ;
-          cpi       r30, 10             ;
-          brsh      display_sec         ;
+          ; Compares value of seconds to find values from 0-9
+          cpi       r30, 10             ; Checks if seconds is a single digit
+          brsh      display_sec         ; If greater than or equal to 10, branches to 'display_sec' to print seconds
 
           ; Else if less than 10
-          rcall     print_zero          ;
+          rcall     print_zero          ; Calls function to ensure seconds has a fixed-width of two digits
 
 display_sec:
           ; Prints the current second count to the LCD screen
@@ -251,22 +251,22 @@ display_sec:
           rcall     print_colon
 
 display_cent_zero:
-          ; 
+          ; Copies the centiseconds value to the registers used by the print function in lcd.inc
           clr       r31
           mov       r30, r17
 
-          ;
-          cpi       r30, 10             ;
-          brsh      display_cent        ;
+          ; Compares value of centiseconds to find values from 0-9
+          cpi       r30, 10             ; Checks if centiseconds is a single digit
+          brsh      display_cent        ; If greater than or equal to 10, branches to 'display_cent' to print centiseconds
 
           ; Else if less than 10
-          rcall     print_zero          ;
+          rcall     print_zero          ; Calls function to ensure centiseconds has a fixed-width of two digits
 
 display_cent:
           ; Prints the current centisecond count to the LCD screen
           rcall     LCD_PRINT_UINT16
 
-          ; Prints blank space at end of timer to resolve overlapping ghost digits
+          ; Prints blank character at end of timer to resolve overlapping ghost digits
           ldi       ZH, high(blank << 1)
           ldi       ZL, low(blank << 1)
           rcall     LCD_WRITE_STRING_PM
@@ -386,69 +386,68 @@ display_split:
 ; Prints current split time on the LCD screen every 10ms
 split_min_zero:
           ; Sets cursor at the start of the second row of the LCD screen
-          ldi       LCD_DATA, 0xC0 ; Loads address of row 2 col 0 to the command register in lcd.inc
-          rcall     LCD_SEND_COMMAND
+          ldi       LCD_DATA, 0xC0      ; Loads address of row 2 col 0 to the command register in lcd.inc
+          rcall     LCD_SEND_COMMAND    ; Calls function to assign the cursor at the inputted address
 
-          ; Ensures "Split: " is written in the second row before the time
+          ; Ensures "Split: " string is written in the second row before the time
           ldi       ZH, high(split_text << 1)
           ldi       ZL, low(split_text << 1)
           rcall     LCD_WRITE_STRING_PM
           
-          ; 
-          clr       r31                 ;
-          lds       r30, split_minutes  ;
+          ; Loads the split minutes value to the registers used by the print function in lcd.inc
+          clr       r31
+          lds       r30, split_minutes
           
-          ;
-          cpi       r30, 10             ;
-          brsh      split_min           ;
+          ; Compares value of split minutes to find values from 0-9
+          cpi       r30, 10             ; Checks if split minutes is a single digit
+          brsh      split_min           ; If greater than or equal to 10, branches to 'split_min' to print split minutes
 
           ; Else if less than 10
-          rcall     print_zero          ;
+          rcall     print_zero          ; Calls function to ensure split minutes has a width of at least two digits
 
 split_min:
           ; Prints the split minute count to the LCD screen
           rcall     LCD_PRINT_UINT16
           
-          ; Calls function to place colon between minutes and seconds
+          ; Calls function to place colon between split minutes and seconds
           rcall     print_colon
 
 split_sec_zero:
-          ;
-          clr       r31                 ;
-          lds       r30, split_seconds  ;
+          ; Copies the split seconds value to the registers used by the print function in lcd.inc
+          clr       r31
+          lds       r30, split_seconds
 
-          ;
-          cpi       r30, 10             ;
-          brsh      split_sec           ;
+          ; Compares value of split seconds to find values from 0-9
+          cpi       r30, 10             ; Checks if split seconds is a single digit
+          brsh      split_sec           ; If greater than or equal to 10, branches to 'split_sec' to print split seconds
 
           ; Else if less than 10
-          rcall     print_zero          ;
+          rcall     print_zero          ; Calls function to ensure split seconds has a fixed-width of two digits
 
 split_sec:
           ; Prints the split second count to the LCD screen
           rcall     LCD_PRINT_UINT16
           
-          ; Calls function to place colon between seconds and centiseconds
+          ; Calls function to place colon between split seconds and centiseconds
           rcall     print_colon
 
 split_cent_zero:
+          ; Copies the split centiseconds value to the registers used by the print function in lcd.inc
+          clr       r31
+          lds       r30, split_centiseconds
 
-          ; 
-          clr       r31                 ;
-          lds       r30, split_centiseconds;
-
-          ;
-          cpi       r30, 10             ;
-          brsh      split_cent          ;
+          ; Compares value of split centiseconds to find values from 0-9
+          cpi       r30, 10             ; Checks if split centiseconds is a single digit
+          brsh      split_cent          ; If greater than or equal to 10, branches to 'split_cent' to print split centiseconds
 
           ; Else if less than 10
-          rcall     print_zero          ;
+          rcall     print_zero          ; Calls function to ensure split centiseconds has a fixed-width of two digits
 
 split_cent:
           ; Prints the split centisecond count to the LCD screen
           rcall     LCD_PRINT_UINT16
 
-          ; Prints blank space at end of timer to resolve overlapping ghost digits
+          ; Prints blank character at end of timer to resolve overlapping ghost digits
           ldi       ZH, high(blank << 1)
           ldi       ZL, low(blank << 1)
           rcall     LCD_WRITE_STRING_PM
@@ -460,8 +459,8 @@ print_zero:
 ; ------------------------------------------------------------
           ; Prints leading zero at current cursor location when called
           ldi       r20, '0'
-          mov       LCD_DATA, r20
-          rcall     LCD_SEND_DATA
+          mov       LCD_DATA, r20       ; Copies binary value of the string to the command register in lcd.inc
+          rcall     LCD_SEND_DATA       ; Calls function to display the inputted binary value on the screen
 
           ret
 
