@@ -2,36 +2,45 @@
 ; stopwatchproject.asm
 ;
 ; Created: 4/20/2026 8:11:02 AM
-; Author : Edwin Bautista, Gustavo Vega, Langley Elg
-; Desc   : Stopwatch that utilizes interrupts and timers to output lap times on a lcd screen
+; Authors: Edwin Bautista, Langley Elg, Gustavo Vega
+; Desc   : Creates a digital stopwatch on an LCD screen with two pushbuttons that 
+;          can start/pause the timer and record split times.
+; ------------------------------------------------------------------------------------
 
-                 ; desired /    xtal * prescaler
-.equ TICK_DELAY =  (10000 / ((1 / 16.0) * 8 )) - 1; 19,999/20,000-1 ticks, prescaler can change
 
-; Buttons defined
-.equ BTN_DIR  = DDRD
-.equ BTN_MODE = PORTD
-.equ BTN_START = PD2                    ; Port D Pin 2, INT0?
-.equ BTN_LAP = PD3                      ; Port D Pin 3, INT1?
-                                        
-; Flags defined, if flag is set to 1(set in the ISRs), then that interrupt happened
-.def tickFlag = r21                     ; every centisecond .01
-.def startFlag = r22                    ; start/pause flag
-.def lapFlag = r23                      ; lapFlag
+; Creates label for the number of clock ticks needed to create a 10ms delay between instructions
+;           (desired delay / ((xtal) * prescaler))
+.equ TICK_DELAY =  (10000 / ((1 / 16.0) * 8 )) - 1 ; 19999 ticks = 10ms delay
 
-; state of stopwatch
-.def state = r24                        ; holds the state of the stopwatch
-.equ stopped = 0                        ; zero if it's paused/stopped
-.equ running = 1                        ; one if it's running
+; Creates labels for Port D's Data Direction and Output registers
+.equ BTN_DIR  = DDRD                    ; Used to assign pin direction
+.equ BTN_MODE = PORTD                   ; Used to change the voltage state of pins
 
-; store time values
-.equ centiseconds = 0x0100              ; (0-99)
-.equ seconds = 0x0101                   ; (0-59)
-.equ minutes = 0x0102                   ; (0-59)
+; Creates labels for the pins of each button
+.equ BTN_START = PD2                    ; Start/pause button uses pin 2 of Port D (INT0)
+.equ BTN_SPLIT = PD3                    ; Split button uses pin 3 of Port D (INT1)
 
-.equ lap_centiseconds = 0x0103
-.equ lap_seconds = 0x0104
-.equ lap_minutes = 0x0105
+; Defines flags used to monitor interrupt occurrences (Each ISR sets the corresponding flag to 1)
+.def tickFlag = r21                     ; Updated every centisecond (.01 second)
+.def startFlag = r22                    ; Updated when start/pause button is pressed
+.def splitFlag = r23                    ; Updated when split button is pressed
+
+; Defines flag used to store the state of the stopwatch
+.def state = r24                        ; Updated when stopwatch starts or stops
+
+; Creates labels for the two possible states of the stopwatch
+.equ stopped = 0                        ; Set as state when stopwatch is paused
+.equ running = 1                        ; Set as state when stopwatch starts running
+
+; Creates labels for the addresses storing the current time on the stopwatch
+.equ centiseconds = 0x0100
+.equ seconds = 0x0101
+.equ minutes = 0x0102
+
+; Creates labels for the addresses storing the saved time recorded by the split button
+.equ split_centiseconds = 0x0103
+.equ split_seconds = 0x0104
+.equ split_minutes = 0x0105
 
 ; ------------------------------------------------------------
 ; Vector Table
@@ -43,7 +52,7 @@
           jmp       start_ISR
 
 .org INT1addr                           ; External Interrupt Request 1
-          jmp       lap_ISR
+          jmp       split_ISR
 
 .org OC1Aaddr                           ; Timer/Counter1 Compare Match A
           jmp       tick_ISR
@@ -54,8 +63,9 @@
 ;--------------------------------------------------------
 ; Strings and lookup-tables
 ;--------------------------------------------------------
-colon: .db ":", 0                       ; allocates bytes for ascii chars with terminator(0) ending the string
-lap: .db "Split: " , 0
+; Allocates bytes for ASCII characters with terminator(0) to end the string
+colon: .db ":", 0
+split_text: .db "Split: " , 0
 
 ;--------------------------------------------------------
 ; Includes
@@ -65,357 +75,318 @@ lap: .db "Split: " , 0
 ;--------------------------------------------------------
 main:
 ;--------------------------------------------------------
-          ; init stack pointer, set the stack pointer to the top of SRAM
+          ; Initializes stack pointer to the last location in memory
           ldi       r16, high(RAMEND)
           out       SPH, r16
           ldi       r16, low(RAMEND)
           out       SPL, r16
 
-          ; Initialize SRAM variables to zero
+          ; Initializes SRAM variables storing time to zero
           ldi r16, 0
           sts centiseconds, r16
           sts seconds, r16
           sts minutes, r16
+          sts split_centiseconds, r16
+          sts split_seconds, r16
+          sts split_minutes, r16
 
-          sts lap_centiseconds, r16
-          sts lap_seconds, r16
-          sts lap_minutes, r16
+          ; Initializes the LCD, GPIO, and timer registers
+          rcall     LCD_INIT            ; Calls from included file to setup the LCD screen
+          rcall     GPIO_init           ; Configures each button's settings
+          rcall     timer_init          ; Sets up and starts timer
 
-          ; init timer, lcd and gpio registers
-          rcall     gpio_init           ; buttons
-          rcall     LCD_INIT            ; LCD screen
-          rcall     timer_init          ; initi
-
+          ; Initializes interrupt flags to zero
           clr       startFlag           ; startFlag = false
           clr       tickFlag            ; tickFlag = false
-          clr       lapFlag             ; lapFlag = false
-          clr       state               ; will start in stopped state
+          clr       splitFlag           ; splitFlag = false
 
-          sei                           ; enable global interrupts   
-                 
+          ; Initializes stopwatch state to zero
+          clr       state               ; Stopwatch will launch in the stopped state until input
+
+          ; Enables global interrupts by setting flag in status register
+          sei
+              
 main_loop:
-          ; Checks if start/pause button was pressed, updates the state
-          tst       startFlag           ; checks if start/pause button was pressed
-          breq      check_tick
+          ; Tests the value of startFlag and updates the stopwatch state accordingly
+          tst       startFlag           ; Checks if the start/pause button has been pressed
+          breq      check_tick          ; If not pressed, branches to 'check_tick' to delay one cycle
           
-          ; test the state, if its running, then change it to stop
-          tst       state
-          breq      sw_run              ; branch if current state is stopped
+          ; Else if button is pressed
+          tst       state               ; Checks if the stopwatch is running
+          breq      sw_run              ; If stopped, branches to 'sw_run' to start the stopwatch
 
 sw_stop:
-          ; updates state to stopped
-          ldi       state, stopped
-          clr       startFlag
-          rjmp      check_tick
+          ; Updates stopwatch state to zero
+          ldi       state, stopped      ; Stopwatch is stopped when start/pause button is pressed while running
+          clr       startFlag           ; Interrupt flag is reset to zero
+          rjmp      check_tick          ; Jumps to 'check_tick' to delay one cycle
           
 sw_run:
-          ; updates state to running
-          ldi       state, running
-          clr       startFlag
+          ; Updates stopwatch state to one
+          ldi       state, running      ; Stopwatch is started when start/pause button is pressed while stopped
+          clr       startFlag           ; Interrupt flag is reset to zero
 
-          
 check_tick:
-          ; occurs every 10 ms, 0.01
-          tst       tickFlag            ; wait for next tick
-          breq      main_loop            ; back to loop if tick hasn't occurred // Edited from end_main to main_loop for out of range err
+          ; Ensures that tickFlag = 1 before moving onto the next instruction 
+          tst       tickFlag            ; Checks if 10ms have passed
+          breq      main_loop           ; If 10ms hasn't been reached, branches to 'main_loop' to restart loop
 
 run_logic:
-          tst       state               
-          brne      PC+2                ; using inverted condition and PC+2 for out of reach error, though considered bad practice  
-          rjmp      stop_logic          ; branch if stopwatch is stopped // Changed from breq to rjmp 
+          ; Iterates to count each centisecond while stopwatch is running
+          tst       state               ; Checks if the stopwatch is running 
+          brne      PC+2                ; Inverted condition with PC+2 prevents out of reach error
+          rjmp      stop_logic          ; If stopped, jumps to 'stop_logic' to restart loop
 
-          ;Logic when stopwatch is running
-          
-          ; reset LCD screen
-          ;rcall     LCD_CLEAR           ; causes flickers
-          rcall     LCD_HOME             ; // REVISE 
+          ; Sets cursor at the start of the LCD screen
+          rcall LCD_HOME
 
-          ;update centiseconds
-          lds       r17, centiseconds    ; load into register from address
-          inc       r17                  ; increases value
+          ; Updates recorded value of centiseconds
+          lds       r17, centiseconds   ; Loads current value of centiseconds
+          inc       r17                 ; Increments centiseconds by 1
 
-          cpi       r17, 100             ; compare to 100
-          breq      update_seconds      ; branch to update other time values
+          ; Compares updated value of centiseconds with its max value
+          cpi       r17, 100            ; Checks if the timer has counted 100 centiseconds 
+          breq      update_seconds      ; If centiseconds = 100, branch to 'update_seconds' to increment seconds
 
-          sts       centiseconds, r17    ; store values back into centisecond
-          rjmp      output              ; back to loop if 100 centiseconds is not met  
+          ; Else if centiseconds <> 100
+          sts       centiseconds, r17   ; Stores current value of centiseconds in variable
+          rjmp      output              ; Jumps to 'output' to continue the loop 
 
 update_seconds:
+          ; Iterates to count each second when centiseconds = 100
           clr       r17
-          sts       centiseconds, r17
+          sts       centiseconds, r17   ; Resets recorded value of centiseconds to zero
           
-          ; update seconds
-          lds       r18, seconds         ; load into register from address
-          inc       r18                  ; increases value
+          ; Updates recorded value of seconds
+          lds       r18, seconds        ; Loads current value of seconds
+          inc       r18                 ; Increments seconds by 1
 
-          cpi       r18, 60              ; compare to 60
-          breq      update_minutes      ; branch to update other time values
+          ; Compares updated value of seconds with its max value
+          cpi       r18, 60             ; Checks if the timer has counted 60 seconds
+          breq      update_minutes      ; If seconds = 60, branch to 'update_minutes' to increment minutes
 
-          sts       seconds, r18
-          rjmp      output              ; back to loop if 60 seconds is not met  
+          ; Else if seconds <> 60
+          sts       seconds, r18        ; Stores current value of seconds in variable
+          rjmp      output              ; Jumps to 'output' to continue the loop
 
 update_minutes:
+          ; Iterates to count each minute when seconds = 60
           clr       r18
-          sts       seconds, r18
+          sts       seconds, r18 ; Resets recorded value of seconds to zero
 
-          ; update minutes
-          lds       r19, minutes        ; load into register from address
-          inc       r19                  ; increases value
+          ; Updates recorded value of minutes
+          lds       r19, minutes        ; Loads current value of minutes
+          inc       r19                 ; Increments minutes by 1
 
-          sts       minutes, r19         ; branch to update other time values
-          rcall     LCD_CLEAR
+          sts       minutes, r19        ; Stores current value of minutes in variable
+
+          rcall     LCD_CLEAR           ; Clears the LCD screen
 
 output:
-                   
-          tst       lapFlag             ; testing the lapFlag for branching
-          breq      display   // TEST
+          ; Tests the value of splitFlag and updates the split time accordingly
+          tst       splitFlag           ; Checks if the split button has been pressed
+          breq      display             ; If not pressed, branches to 'display' to print the current time
 
-          ; Essentially takes a "snapshot" of all the timer details to display at output_split
+          ; Updates the split time with each recorded value of the current time
           lds       r20, centiseconds
-          sts       lap_centiseconds, r20
+          sts       split_centiseconds, r20
           lds       r20, seconds
-          sts       lap_seconds, r20
+          sts       split_seconds, r20
           lds       r20, minutes
-          sts       lap_minutes, r20
+          sts       split_minutes, r20
+
+          ; Calls 'output_split' to print the split time before continuing with the loop
           rcall     output_split
 
 display:
+          ; Prints current time on the LCD screen every 10ms
           
-          ; Set cursor to row 1 col 0 (reference lcd.inc)
-          ldi       LCD_DATA, 0x80
+          ; Sets cursor at the start of the LCD screen
+          ldi       LCD_DATA, 0x80      ; Loads address of row 1 col 0 to the command register in lcd.inc
           rcall     LCD_SEND_COMMAND
 
-          ; loads time values
+          ; Updates the current time with the recorded values of each unit
           lds       r19, minutes
           lds       r18, seconds
           lds       r17, centiseconds
 
-          ; print minutes
-          clr       r31                         ; // REV  add clr r31 to all three times?
+          ; Prints the current minute count to the LCD screen
+          clr       r31
           mov       r30, r19
           rcall     LCD_PRINT_UINT16
 
-          ; print colon
+          ; Prints the colon between minutes and seconds
           ldi       ZH, high(colon << 1)
           ldi       ZL, low(colon << 1)
           rcall     LCD_WRITE_STRING_PM
 
-          ; print seconds
+          ; Prints the current second count to the LCD screen
           clr       r31
           mov       r30, r18
           rcall     LCD_PRINT_UINT16
 
-          ; print colon
+          ; Prints the colon between seconds and centiseconds
           ldi       ZH, high(colon << 1)
           ldi       ZL, low(colon << 1)
           rcall     LCD_WRITE_STRING_PM
 
-          ; print centiseconds
+          ; Prints the current centisecond count to the LCD screen
           clr       r31
           mov       r30, r17
           rcall     LCD_PRINT_UINT16
 
 stop_logic:
+          ; Checks stopwatch state and branches if it is running
           tst       state
-          brne      end_loop            ; 'redundant' check, not necessary
-
+          brne      end_loop
 
 end_loop:
-          
+          ; Clears interrupt flags before restarting the loop
           clr       tickFlag            ; tickFlag = false
-          clr       lapFlag             ; lapFlag = false
+          clr       splitFlag           ; splitFlag = false
 
 end_main:
           rjmp      main_loop
 
-
 ; ------------------------------------------------------------
-gpio_init:
+GPIO_init:
 ; ------------------------------------------------------------
-          ; initialize buttons
+          ; Initializes and configures buttons
+          cbi       BTN_DIR, BTN_START  ; Clears start/pause button to input mode
+          sbi       BTN_MODE, BTN_START ; Sets for pull-up
+          sbi       EIMSK, INT0         ; Enables external interrupt 0
+          ldi       r20, (0b10 << ISC00); Defines falling edge as pin's interrupt trigger
 
+          cbi       BTN_DIR, BTN_SPLIT  ; Clears split button to input mode
+          sbi       BTN_MODE, BTN_SPLIT ; Sets for pull-up
+          sbi       EIMSK, INT1         ; Enables external interrupt 1
+          ori       r20, (0b10 << ISC10); Defines falling edge as pin's interrupt trigger
           
-          ; Configure INT0 start pause button (PD2)
-          cbi       BTN_DIR, BTN_START  ; input mode
-          sbi       BTN_MODE, BTN_START ; pull-up
-
-          ; Configure INT1 LAP BUTTON (PD3)
-          cbi       BTN_DIR, BTN_LAP    ; input mode
-          sbi       BTN_MODE, BTN_LAP   ; pull-up
-
-          ldi       r20, (0b10 << ISC00); fall-edge trigger
-          ori       r20, (0b10 << ISC10); fall-edge trigger
-          sts       EICRA, r20          ; set sense bits
-
-          sbi       EIMSK, INT0         ; enable INT0, pd2?
-          sbi       EIMSK, INT1         ; enable INT1, pd3
-
-          /*
-          
-          ; initialize buttons
-          cbi       BTN_DIR, BTN_START  ; input mode
-          sbi       BTN_MODE, BTN_START ; pull-up
-
-          sbi       EIMSK, INT0         ; enable INT0, pd2?
-          ldi       r20, (0b10 << ISC00); fall-edge trigger
-          sts       EICRA, r20          ; set sense bits
-
-          ; Configure INT1 LAP BUTTON (PD3)
-          cbi       BTN_DIR, BTN_LAP    ; input mode
-          sbi       BTN_MODE, BTN_LAP   ; pull-up
-
-          sbi       EIMSK, INT1         ; enable INT1, pd3?
-          ori       r20, (0b10 << ISC10); fall-edge trigger
-          sts       EICRA, r20          ; set sense bits
-          */
+          sts       EICRA, r20          ; Sets sense bits for both INT0 and INT1
 
           ret
-
 
 ; ------------------------------------------------------------
 timer_init:
 ; ------------------------------------------------------------
-          ; Load TCNT1H:TCNT1L with initial count, timer/compare registers
+          ; Initializes timer in Timer/Counter1 Register with initial count of zero
           clr       r20
           sts       TCNT1H, r20
           sts       TCNT1L, r20
 
-          ; Load OCR1AH:OCR1AL with stop count, output compare registers with TICK_DELAY = 624
-          ldi       r20, high(TICK_DELAY); load upper byte into high register
-          sts       OCR1AH, r20
+          ; Sets stop count for a 10ms delay in Output Compare1 Register
+          ldi       r20, high(TICK_DELAY)
+          sts       OCR1AH, r20         ; Loads upper byte into high register
           ldi       r20, low(TICK_DELAY)
-          sts       OCR1AL, r20
+          sts       OCR1AL, r20         ; Loads lower byte into low register
 
-          ; Load TCCR1A & TCCR1B
-          clr       r20                 ; should be cleared, CTC mode
-          sts       TCCR1A, r20         ; stores r20 into the timer/compare register 1A
+          ; Defines timer mode and sets prescaler in Timer/Counter1 Control Registers A and B
+          clr       r20
+          sts       TCCR1A, r20         ; Loads zero into Register A
+          ldi       r20, (0b01 << WGM12); Defines timer mode as CTC
+          ori       r20, (0b10 << CS10) ; Selects clock prescaler as clk/8
+          sts       TCCR1B, r20         ; Sets clock bits, which starts the timer
 
-          ; Clock Prescaler   setting the clock starts the timer
-          ldi       r20, (0b01 << WGM12); CTC mode, WGM12 need to be set ode
-          ori       r20, (0b10 << CS10) ; clk/8, CS11 needs to be set
-
-          sts       TCCR1B, r20         ; stores r20 into the timer/compare register 1B
-
-          ; enable interrupts
+          ; Enables interrupt in Timer/Counter Interrupt Mask Register
           ldi       r20, (1 << OCIE1A)
-          sts       TIMSK1, r20
+          sts       TIMSK1, r20         ; Sets interrupt to trigger when timer reaches stop count
+          
           ret
 
 ; ------------------------------------------------------------
 tick_ISR:
 ; ------------------------------------------------------------
-
-          ; Save a working register, copy SREG, then save to stack
+          ; Saves a working register and a copy of the status register to the stack
           push      r20
           in        r20, SREG
           push      r20
 
+          ; Sets interrupt flag to one during interrupt
           ldi       tickFlag, 1         ; tickFlag = true
 
-          ; Load TCNT1H:TCNT1L with initial count, timer/compare registers
-          ; possibly remove due to redundancy, can interrupt 10ms intervals by making it slightly longer for edge cases
-          ;clr       r20
-          ;sts       TCNT1H, r20
-          ;sts       TCNT1L, r20
-
-          ; Restore saved SREG and restore working register
+          ; Restores saved status register and working register from stack
           pop       r20
           out       SREG, r20
           pop       r20
 
+          ; Returns to main program and restores global interrupt
           reti
 
 ; ------------------------------------------------------------
 start_ISR:
 ; ------------------------------------------------------------
-          
-          ; Save a working register, copy SREG, then save to stack
+          ; Saves a working register and a copy of the status register to the stack
           push      r20
           in        r20, SREG
           push      r20
 
+          ; Sets interrupt flag to one during interrupt
           ldi       startFlag, 1        ; startFlag = true 
 
-          ; Restore saved SREG and restore working register
+          ; Restores saved status register and working register from stack
           pop       r20
           out       SREG, r20
           pop       r20
           
+          ; Returns to main program and restores global interrupt
           reti
 
 ; ------------------------------------------------------------
-lap_ISR:
+split_ISR:
 ; ------------------------------------------------------------
-          ; Save a working register, copy SREG, then save to stack
+          ; Saves a working register and a copy of the status register to the stack
           push      r20
           in        r20, SREG
           push      r20
 
-          ;rcall     LCD_CLEAR  ; troubleshooting
+          ; Sets interrupt flag to one during interrupt
+          ldi       splitFlag, 1        ; splitFlag = true
 
-          ldi       lapFlag, 1          ; readFlag = true
-
-          ; Restore saved SREG and restore working register
+          ; Restores saved status register and working register from stack
           pop       r20
           out       SREG, r20
           pop       r20
           
+          ; Returns to main program and restores global interrupt
           reti
 
 ; ------------------------------------------------------------
 output_split:
 ; ------------------------------------------------------------
+          ; Prints current split time on the LCD screen every 10ms
 
-          ; Referenced (lcd.inc LCD_GOTO_LINE2)
-          ldi       LCD_DATA, 0xC0
+          ; Sets cursor at the start of the second row of the LCD screen
+          ldi       LCD_DATA, 0xC0 ; Loads address of row 2 col 0 to the command register in lcd.inc
           rcall     LCD_SEND_COMMAND
 
-          ; Ensuring "Split: " is written in second row
-          ldi       ZH, HIGH(lap << 1)
-          ldi       ZL, LOW(lap << 1)
+          ; Ensures "Split: " is written in the second row before the time
+          ldi       ZH, high(split_text << 1)
+          ldi       ZL, low(split_text << 1)
           rcall    LCD_WRITE_STRING_PM
 
-          ;print the lap minutes
-          clr       r31                 ; // Rev
-          lds       r30, lap_minutes
+          ; Prints the split minute count to the LCD screen
+          clr       r31
+          lds       r30, split_minutes
           rcall     LCD_PRINT_UINT16
           
-          ;print the colon
-          ldi       ZH, HIGH(colon << 1)
-          ldi       ZL, LOW(colon << 1)
+          ; Prints the colon between minutes and seconds
+          ldi       ZH, high(colon << 1)
+          ldi       ZL, low(colon << 1)
           rcall     LCD_WRITE_STRING_PM
           
-          ;printing the lap seconds
-          clr       r31                 ; // Rev
-          lds       r30, lap_seconds
+          ; Prints the split second count to the LCD screen
+          clr       r31
+          lds       r30, split_seconds
           rcall     LCD_PRINT_UINT16
           
-          ; print colon
-          ldi       ZH, HIGH(colon << 1)
-          ldi       ZL, LOW(colon << 1)
+          ; Prints the colon between seconds and centiseconds
+          ldi       ZH, high(colon << 1)
+          ldi       ZL, low(colon << 1)
           rcall     LCD_WRITE_STRING_PM
           
-          ; print lap centiseconds
-          clr       r31                 ; // Rev
-          lds       r30, lap_centiseconds
+          ; Prints the split centisecond count to the LCD screen
+          clr       r31
+          lds       r30, split_centiseconds
           rcall     LCD_PRINT_UINT16
           
-          ret        
-
-          
-          
-; ------------------------------------------------------------
-;inc_time:                               ; change time
-; ------------------------------------------------------------
-;          push     r0
-;          push     r1
-;          ; read current time
-;          lds       r1, centiseconds + 1
-;          lds       r0, centiseconds
-;
-;          ; adjust current delay by speed adjust
-;          sub       r0, r16
-;          sbc       r1, r17
-;
-;          sts       tmCount + 1, r1
-;          sts       tmCount, r0
+          ret
