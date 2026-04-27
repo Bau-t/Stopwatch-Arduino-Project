@@ -27,9 +27,8 @@
 
 ; Defines flag used to store the state of the stopwatch
 .def state = r24                        ; Updated when stopwatch starts or stops
-
 ; Creates labels for the two possible states of the stopwatch
-.equ stopped = 0                        ; Set as state when stopwatch is paused
+.equ stopped = 0                        ; Set as state when stopwatch is paused or reset
 .equ running = 1                        ; Set as state when stopwatch starts running
 
 ; Creates labels for the addresses storing the current time on the stopwatch
@@ -65,7 +64,8 @@
 ;--------------------------------------------------------
 ; Allocates bytes for ASCII characters with terminator(0) to end the string
 colon: .db ":", 0
-split_text: .db "Split: " , 0
+split_text: .db "Split: ", 0
+blank: .db " ", 0
 
 ;--------------------------------------------------------
 ; Includes
@@ -131,14 +131,16 @@ check_tick:
           tst       tickFlag            ; Checks if 10ms have passed
           breq      main_loop           ; If 10ms hasn't been reached, branches to 'main_loop' to restart loop
 
-run_logic:
-          ; Iterates to count each centisecond while stopwatch is running
+check_state:
+          ; Ensures that state = 1 before continuing into the timer loop
           tst       state               ; Checks if the stopwatch is running 
-          brne      PC+2                ; Inverted condition with PC+2 prevents out of reach error
-          rjmp      stop_logic          ; If stopped, jumps to 'stop_logic' to restart loop
+          brne      update_cent         ; If running, branches to 'update_cent' to start counting
 
-          ; Sets cursor at the start of the LCD screen
-          rcall LCD_HOME
+          ; Else if stopped
+          rjmp      end_loop            ; Jumps to 'end_loop' to restart loop
+
+update_cent:
+          ; Iterates to count each centisecond while stopwatch is running
 
           ; Updates recorded value of centiseconds
           lds       r17, centiseconds   ; Loads current value of centiseconds
@@ -146,13 +148,13 @@ run_logic:
 
           ; Compares updated value of centiseconds with its max value
           cpi       r17, 100            ; Checks if the timer has counted 100 centiseconds 
-          breq      update_seconds      ; If centiseconds = 100, branch to 'update_seconds' to increment seconds
+          breq      update_sec          ; If centiseconds = 100, branch to 'update_sec' to increment seconds
 
           ; Else if centiseconds <> 100
           sts       centiseconds, r17   ; Stores current value of centiseconds in variable
-          rjmp      output              ; Jumps to 'output' to continue the loop 
+          rjmp      update_split        ; Jumps to 'update_split' to continue the loop 
 
-update_seconds:
+update_sec:
           ; Iterates to count each second when centiseconds = 100
           clr       r17
           sts       centiseconds, r17   ; Resets recorded value of centiseconds to zero
@@ -163,13 +165,13 @@ update_seconds:
 
           ; Compares updated value of seconds with its max value
           cpi       r18, 60             ; Checks if the timer has counted 60 seconds
-          breq      update_minutes      ; If seconds = 60, branch to 'update_minutes' to increment minutes
+          breq      update_min          ; If seconds = 60, branch to 'update_min' to increment minutes
 
           ; Else if seconds <> 60
           sts       seconds, r18        ; Stores current value of seconds in variable
-          rjmp      output              ; Jumps to 'output' to continue the loop
+          rjmp      update_split        ; Jumps to 'update_split' to continue the loop 
 
-update_minutes:
+update_min:
           ; Iterates to count each minute when seconds = 60
           clr       r18
           sts       seconds, r18 ; Resets recorded value of seconds to zero
@@ -180,9 +182,7 @@ update_minutes:
 
           sts       minutes, r19        ; Stores current value of minutes in variable
 
-          rcall     LCD_CLEAR           ; Clears the LCD screen
-
-output:
+update_split:
           ; Tests the value of splitFlag and updates the split time accordingly
           tst       splitFlag           ; Checks if the split button has been pressed
           breq      display             ; If not pressed, branches to 'display' to print the current time
@@ -195,8 +195,11 @@ output:
           lds       r20, minutes
           sts       split_minutes, r20
 
-          ; Calls 'output_split' to print the split time before continuing with the loop
-          rcall     output_split
+          ; Calls 'display_split' to print the split time
+          rcall     display_split
+
+          ; Clears splitFlag before continuing with the loop
+          clr       splitFlag;          ; splitFlag = false
 
 display:
           ; Prints current time on the LCD screen every 10ms
@@ -215,35 +218,30 @@ display:
           mov       r30, r19
           rcall     LCD_PRINT_UINT16
 
-          ; Prints the colon between minutes and seconds
-          ldi       ZH, high(colon << 1)
-          ldi       ZL, low(colon << 1)
-          rcall     LCD_WRITE_STRING_PM
+          ; Calls function to place colon between minutes and seconds
+          rcall     print_colon
 
           ; Prints the current second count to the LCD screen
           clr       r31
           mov       r30, r18
           rcall     LCD_PRINT_UINT16
 
-          ; Prints the colon between seconds and centiseconds
-          ldi       ZH, high(colon << 1)
-          ldi       ZL, low(colon << 1)
-          rcall     LCD_WRITE_STRING_PM
+          ; Calls function to place colon between seconds and centiseconds
+          rcall     print_colon
 
           ; Prints the current centisecond count to the LCD screen
           clr       r31
           mov       r30, r17
           rcall     LCD_PRINT_UINT16
 
-stop_logic:
-          ; Checks stopwatch state and branches if it is running
-          tst       state
-          brne      end_loop
+          ; Prints blank space to resolve overlapping ghost digits
+          ldi       ZH, high(blank << 1)
+          ldi       ZL, low(blank << 1)
+          rcall     LCD_WRITE_STRING_PM
 
 end_loop:
-          ; Clears interrupt flags before restarting the loop
+          ; Clears tickFlag before restarting the loop
           clr       tickFlag            ; tickFlag = false
-          clr       splitFlag           ; splitFlag = false
 
 end_main:
           rjmp      main_loop
@@ -351,7 +349,7 @@ split_ISR:
           reti
 
 ; ------------------------------------------------------------
-output_split:
+display_split:
 ; ------------------------------------------------------------
           ; Prints current split time on the LCD screen every 10ms
 
@@ -362,31 +360,42 @@ output_split:
           ; Ensures "Split: " is written in the second row before the time
           ldi       ZH, high(split_text << 1)
           ldi       ZL, low(split_text << 1)
-          rcall    LCD_WRITE_STRING_PM
+          rcall     LCD_WRITE_STRING_PM
 
           ; Prints the split minute count to the LCD screen
           clr       r31
           lds       r30, split_minutes
           rcall     LCD_PRINT_UINT16
           
-          ; Prints the colon between minutes and seconds
-          ldi       ZH, high(colon << 1)
-          ldi       ZL, low(colon << 1)
-          rcall     LCD_WRITE_STRING_PM
+          ; Calls function to place colon between minutes and seconds
+          rcall     print_colon
           
           ; Prints the split second count to the LCD screen
           clr       r31
           lds       r30, split_seconds
           rcall     LCD_PRINT_UINT16
           
-          ; Prints the colon between seconds and centiseconds
-          ldi       ZH, high(colon << 1)
-          ldi       ZL, low(colon << 1)
-          rcall     LCD_WRITE_STRING_PM
-          
+          ; Calls function to place colon between seconds and centiseconds
+          rcall     print_colon
+
           ; Prints the split centisecond count to the LCD screen
           clr       r31
           lds       r30, split_centiseconds
           rcall     LCD_PRINT_UINT16
+
+          ; Prints blank space to resolve overlapping ghost digits
+          ldi       ZH, high(blank << 1)
+          ldi       ZL, low(blank << 1)
+          rcall     LCD_WRITE_STRING_PM
           
+          ret
+
+; ------------------------------------------------------------
+print_colon:
+; ------------------------------------------------------------
+          ; Prints colon at current cursor location when called
+          ldi       ZH, high(colon << 1)
+          ldi       ZL, low(colon << 1)
+          rcall     LCD_WRITE_STRING_PM
+
           ret
